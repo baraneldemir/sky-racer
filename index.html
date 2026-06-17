@@ -382,9 +382,11 @@ import * as THREE from 'three';
 // ═══════════════════════════════════════════════════════════
 //  CONSTANTS
 // ═══════════════════════════════════════════════════════════
-const TERRAIN_SIZE   = 3200;   // mesh size (m)
-const TERRAIN_SEGS   = 130;    // segments per side
-const TERRAIN_STEP   = 80;     // update terrain every N metres of player movement
+const TERRAIN_SIZE   = 3600;   // mesh size (m)
+const TERRAIN_SEGS   = 144;    // segments per side  → 25 m per cell
+const SEG_SIZE       = TERRAIN_SIZE / TERRAIN_SEGS;  // 25 m — offsets snap to this
+const TERRAIN_STEP   = SEG_SIZE * 4; // recenter after moving 4 cells (100 m)
+const SEA_LEVEL      = 0;      // water surface height
 
 const MAX_SPEED      = 130;    // m/s at full throttle
 const CRUISE_SPEED   = 80;     // m/s — wings-level neutral lift
@@ -399,7 +401,7 @@ const START_ALT      = 180;    // m above sea level
 // ═══════════════════════════════════════════════════════════
 const scene    = new THREE.Scene();
 scene.background = new THREE.Color(0x87CEEB);
-scene.fog = new THREE.Fog(0x87CEEB, 900, 2800);
+scene.fog = new THREE.Fog(0x87CEEB, 700, 1750);  // far edge hidden inside fog
 
 const camera = new THREE.PerspectiveCamera(68, innerWidth / innerHeight, 0.5, 5000);
 
@@ -424,11 +426,11 @@ window.addEventListener('resize', () => {
 //  TERRAIN
 // ═══════════════════════════════════════════════════════════
 function terrainY(wx, wz) {
-  // Flatten spawn area
+  // Flatten spawn area so takeoff is easy
   const d = Math.sqrt(wx * wx + wz * wz);
   const flat = Math.max(0, 1 - d / 600);
 
-  const h =
+  const hills =
     Math.sin(wx * 0.0028) * 28 +
     Math.sin(wz * 0.0022) * 38 +
     Math.sin(wx * 0.009  + wz * 0.007) * 14 +
@@ -436,15 +438,22 @@ function terrainY(wx, wz) {
     Math.cos(wx * 0.005  + wz * 0.003) * 10 +
     Math.sin(wx * 0.0015 + wz * 0.001) * 50; // large rolling hills
 
-  return h * (1 - flat);
+  // Bias the whole world upward so it's mostly green land; low basins
+  // dip below SEA_LEVEL and become lakes.
+  const BASELINE = 30;
+  return (BASELINE + hills) * (1 - flat) + 8 * flat;
 }
 
+const _tc = new THREE.Color();
 function terrainColor(h) {
-  if (h < 2)  return new THREE.Color(0x3a7a4e);
-  if (h < 20) return new THREE.Color(0x4a8c5a);
-  if (h < 45) return new THREE.Color(0x5a9e68);
-  if (h < 70) return new THREE.Color(0x6ab070);
-  return         new THREE.Color(0x8ac878); // high meadows
+  // Returns into the shared _tc to avoid per-vertex allocation
+  if (h < SEA_LEVEL + 1.5) return _tc.set(0xc9b88a);  // sandy shoreline
+  if (h < SEA_LEVEL + 6)   return _tc.set(0xb8c47a);  // grassy beach
+  if (h < 25)  return _tc.set(0x4a8c5a);
+  if (h < 55)  return _tc.set(0x5a9e68);
+  if (h < 90)  return _tc.set(0x6ab070);
+  if (h < 130) return _tc.set(0x8ac878);
+  return            _tc.set(0x9a9080);                // rocky peaks
 }
 
 let terrainOffsetX = 0, terrainOffsetZ = 0;
@@ -456,8 +465,10 @@ function buildTerrainGeometry() {
 }
 
 function updateTerrainMesh(mesh, cx, cz) {
-  terrainOffsetX = Math.round(cx / TERRAIN_STEP) * TERRAIN_STEP;
-  terrainOffsetZ = Math.round(cz / TERRAIN_STEP) * TERRAIN_STEP;
+  // Snap to the mesh cell grid so every vertex always samples the same
+  // world points → no shimmering as the chunk recenters.
+  terrainOffsetX = Math.round(cx / SEG_SIZE) * SEG_SIZE;
+  terrainOffsetZ = Math.round(cz / SEG_SIZE) * SEG_SIZE;
   mesh.position.set(terrainOffsetX, 0, terrainOffsetZ);
 
   const pos  = mesh.geometry.attributes.position;
@@ -477,7 +488,10 @@ function updateTerrainMesh(mesh, cx, cz) {
   pos.needsUpdate = true;
   col.needsUpdate = true;
   mesh.geometry.computeVertexNormals();
+
+  if (treesReady) updateTrees(terrainOffsetX, terrainOffsetZ);
 }
+var treesReady = false;  // hoisted; flipped on once tree meshes exist
 
 const terrainGeo = buildTerrainGeometry();
 // Pre-allocate color buffer
@@ -492,19 +506,98 @@ terrainMesh.receiveShadow = false;
 scene.add(terrainMesh);
 updateTerrainMesh(terrainMesh, 0, 0);
 
-// Sea / ground base far below (catches any terrain gaps)
+// Water — big flat blue plane at sea level. polygonOffset pushes it
+// slightly behind the land so the shoreline never z-fights / flickers.
 const seaGeo = new THREE.PlaneGeometry(100000, 100000);
 seaGeo.rotateX(-Math.PI / 2);
-const seaMesh = new THREE.Mesh(seaGeo, new THREE.MeshBasicMaterial({ color: 0x2e7d4a }));
-seaMesh.position.y = -8;
+const seaMesh = new THREE.Mesh(seaGeo, new THREE.MeshLambertMaterial({
+  color: 0x3a7fb5,
+  polygonOffset: true,
+  polygonOffsetFactor: 1,
+  polygonOffsetUnits: 1,
+}));
+seaMesh.position.y = SEA_LEVEL;
 scene.add(seaMesh);
 
-// Simple runway at spawn for visual reference
+// Simple runway at spawn (spawn ground is at y≈8 due to flattening)
 const runwayGeo = new THREE.PlaneGeometry(20, 300);
 runwayGeo.rotateX(-Math.PI / 2);
 const runway = new THREE.Mesh(runwayGeo, new THREE.MeshBasicMaterial({ color: 0x555566 }));
-runway.position.set(0, 0.2, -100);
+runway.position.set(0, 8.15, -100);
 scene.add(runway);
+
+// ═══════════════════════════════════════════════════════════
+//  TREES (instanced, world-stable placement)
+// ═══════════════════════════════════════════════════════════
+const TREE_CELL  = 80;    // one candidate tree per 80 m cell
+const TREE_RANGE = 950;   // place trees within this radius of the player
+const TREE_SPAN  = Math.floor(TREE_RANGE / TREE_CELL);
+const TREE_MAX   = (TREE_SPAN * 2 + 1) ** 2;
+
+// trunk: base sits at y=0
+const trunkGeo = new THREE.CylinderGeometry(0.5, 0.85, 5, 5);
+trunkGeo.translate(0, 2.5, 0);
+// foliage cone: base sits on top of trunk
+const leafGeo = new THREE.ConeGeometry(3.4, 9, 6);
+leafGeo.translate(0, 9.5, 0);
+
+const trunkMesh = new THREE.InstancedMesh(
+  trunkGeo, new THREE.MeshLambertMaterial({ color: 0x6b4a2b }), TREE_MAX);
+const leafMesh = new THREE.InstancedMesh(
+  leafGeo, new THREE.MeshLambertMaterial({ color: 0x2f7d3a }), TREE_MAX);
+trunkMesh.frustumCulled = false;
+leafMesh.frustumCulled  = false;
+scene.add(trunkMesh, leafMesh);
+
+function treeHash(x, z) {
+  const s = Math.sin(x * 127.1 + z * 311.7) * 43758.5453;
+  return s - Math.floor(s);
+}
+
+const _tm = new THREE.Matrix4();
+const _tq = new THREE.Quaternion();
+const _tp = new THREE.Vector3();
+const _ts = new THREE.Vector3();
+const _tyAxis = new THREE.Vector3(0, 1, 0);
+
+function updateTrees(cx, cz) {
+  const baseGX = Math.round(cx / TREE_CELL);
+  const baseGZ = Math.round(cz / TREE_CELL);
+  let n = 0;
+
+  for (let gx = baseGX - TREE_SPAN; gx <= baseGX + TREE_SPAN; gx++) {
+    for (let gz = baseGZ - TREE_SPAN; gz <= baseGZ + TREE_SPAN; gz++) {
+      if (treeHash(gx, gz) > 0.42) continue;   // ~42% of cells get a tree
+
+      const jx = (treeHash(gx * 1.3 + 5.1, gz * 0.7) - 0.5) * TREE_CELL * 0.8;
+      const jz = (treeHash(gx * 0.9, gz * 1.7 + 2.3) - 0.5) * TREE_CELL * 0.8;
+      const wx = gx * TREE_CELL + jx;
+      const wz = gz * TREE_CELL + jz;
+
+      const h = terrainY(wx, wz);
+      if (h < SEA_LEVEL + 5 || h > 110) continue;          // skip water & peaks
+      if (wx * wx + wz * wz < 130 * 130) continue;         // keep runway clear
+
+      const sc = 0.7 + treeHash(gx + 9.2, gz + 4.4) * 1.0;
+      _tq.setFromAxisAngle(_tyAxis, treeHash(gx * 2.1, gz * 3.3) * 6.283);
+      _tp.set(wx, h, wz);
+      _ts.set(sc, sc, sc);
+      _tm.compose(_tp, _tq, _ts);
+      trunkMesh.setMatrixAt(n, _tm);
+      leafMesh.setMatrixAt(n, _tm);
+      n++;
+      if (n >= TREE_MAX) break;
+    }
+    if (n >= TREE_MAX) break;
+  }
+
+  trunkMesh.count = n;
+  leafMesh.count  = n;
+  trunkMesh.instanceMatrix.needsUpdate = true;
+  leafMesh.instanceMatrix.needsUpdate  = true;
+}
+treesReady = true;
+updateTrees(0, 0);
 
 // ═══════════════════════════════════════════════════════════
 //  CLOUDS
