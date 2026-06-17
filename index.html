@@ -747,7 +747,7 @@ function updateFlight(dt) {
   const pitchIn = Math.max(-1, Math.min(1,
     (keys['ArrowDown'] ? 1 : 0) - (keys['ArrowUp'] ? 1 : 0) + touch.pitchIn));
   const rollIn  = Math.max(-1, Math.min(1,
-    (keys['ArrowRight'] ? 1 : 0) - (keys['ArrowLeft'] ? 1 : 0) + touch.rollIn));
+    (keys['ArrowLeft'] ? 1 : 0) - (keys['ArrowRight'] ? 1 : 0) + touch.rollIn));
 
   // Local axes
   _right.set(1, 0, 0).applyQuaternion(quat);
@@ -1032,7 +1032,7 @@ function setupMobileControls() {
     const clamp = Math.min(len, JOY_R);
     const nx = len > 0 ? dx / len : 0;
     const ny = len > 0 ? dy / len : 0;
-    touch.rollIn  =  nx * (clamp / JOY_R);
+    touch.rollIn  = -nx * (clamp / JOY_R); // drag joystick left = roll left
     touch.pitchIn = ny * (clamp / JOY_R); // drag joystick down = pitch up (inverted)
     joyKnob.style.transform =
       `translate(calc(-50% + ${nx * clamp}px), calc(-50% + ${ny * clamp}px))`;
