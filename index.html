@@ -29,27 +29,6 @@
   .stat-label { font-size: 10px; letter-spacing: 3px; opacity: .75; text-transform: uppercase; }
   .stat-value { font-size: 26px; font-weight: bold; line-height: 1; }
 
-  /* throttle bar */
-  .throttle-wrap {
-    position: absolute;
-    bottom: 44px; left: 40px;
-    display: flex; flex-direction: column; align-items: center; gap: 4px;
-  }
-  .thr-label { color: #fff; font-size: 10px; letter-spacing: 3px;
-    text-shadow: 0 0 4px rgba(0,0,0,.8); }
-  .thr-bar {
-    width: 18px; height: 110px;
-    background: rgba(0,0,0,.45);
-    border: 1px solid rgba(255,255,255,.35);
-    border-radius: 3px;
-    position: relative; overflow: hidden;
-  }
-  .thr-fill {
-    position: absolute; bottom: 0; left: 0; right: 0;
-    background: linear-gradient(to top, #e53, #fa0, #4e4);
-    transition: height .08s;
-  }
-
   /* artificial horizon */
   #horizon-wrap {
     position: absolute;
@@ -206,29 +185,6 @@
     z-index: 50;
   }
 
-  /* Throttle buttons — bottom-left */
-  #thr-pad {
-    position: absolute;
-    bottom: 32px; left: 24px;
-    display: flex; flex-direction: column; gap: 14px;
-    pointer-events: all;
-  }
-  .thr-btn {
-    width: 64px; height: 64px;
-    border-radius: 50%;
-    border: 2px solid rgba(255,255,255,.45);
-    background: rgba(0,0,0,.38);
-    color: #fff;
-    font-size: 26px; line-height: 1;
-    display: flex; align-items: center; justify-content: center;
-    cursor: pointer;
-    user-select: none;
-    -webkit-user-select: none;
-    touch-action: none;
-    backdrop-filter: blur(4px);
-  }
-  .thr-btn:active { background: rgba(255,255,255,.18); }
-
   /* Virtual joystick — bottom-right */
   #joy-zone {
     position: absolute;
@@ -257,21 +213,10 @@
     pointer-events: none;
   }
 
-  /* throttle % readout above the thrust pad */
-  #thr-readout {
-    text-align: center;
-    color: #fff;
-    font-size: 13px; font-weight: bold;
-    letter-spacing: 1px;
-    text-shadow: 0 0 4px rgba(0,0,0,.8);
-    margin-bottom: 2px;
-  }
-
   /* On touch screens, hide the desktop-only gauges that overlap
-     the on-screen controls (vertical THR bar, artificial horizon, hint) */
+     the on-screen controls (artificial horizon, keyboard hint) */
   @media (hover: none) and (pointer: coarse) {
     #hint,
-    .throttle-wrap,
     #horizon-wrap { display: none; }
   }
 </style>
@@ -297,13 +242,6 @@
     </div>
   </div>
 
-  <div class="throttle-wrap">
-    <div class="thr-label">THR</div>
-    <div class="thr-bar">
-      <div class="thr-fill" id="thr-fill" style="height:60%"></div>
-    </div>
-  </div>
-
   <div id="horizon-wrap">
     <div class="horizon-ring">
       <div class="horizon-sky" id="h-sky"></div>
@@ -322,7 +260,6 @@
   <div id="hint">
     ↑ ↓ &nbsp; Pitch<br>
     ← → &nbsp; Roll<br>
-    W / S &nbsp; Throttle<br>
     R &nbsp;&nbsp;&nbsp;&nbsp; Restart
   </div>
 </div>
@@ -334,7 +271,6 @@
   <table class="key-table">
     <tr><td>↑ / ↓</td><td>Pitch nose up / down</td></tr>
     <tr><td>← / →</td><td>Roll left / right</td></tr>
-    <tr><td>W / S</td><td>Throttle up / down</td></tr>
     <tr><td>R</td><td>Restart</td></tr>
   </table>
   <button class="big-btn" id="start-btn">FLY!</button>
@@ -353,13 +289,6 @@
 
 <!-- ── Mobile touch controls ── -->
 <div id="mobile-controls">
-  <!-- Throttle up/down -->
-  <div id="thr-pad">
-    <div id="thr-readout">THR 60%</div>
-    <button class="thr-btn" id="thr-up-btn">▲</button>
-    <button class="thr-btn" id="thr-dn-btn">▼</button>
-  </div>
-
   <!-- Pitch / Roll joystick -->
   <div id="joy-zone">
     <div id="joy-base">
@@ -708,7 +637,7 @@ scene.add(planeMesh);
 let pos        = new THREE.Vector3(0, START_ALT, 0);
 let quat       = new THREE.Quaternion();
 let speed      = 75;
-let throttle   = 0.6;
+let throttle   = 0.5;     // fixed — no throttle control
 let vvel       = 0;       // vertical velocity (m/s, Y axis)
 let displaySpeed = 0;     // actual velocity through the world (for HUD)
 const _prevPos = new THREE.Vector3();
@@ -743,9 +672,7 @@ const _yawQ    = new THREE.Quaternion();
 function updateFlight(dt) {
   if (!gameRunning || crashed) return;
 
-  // Throttle — keyboard OR touch buttons
-  const tIn = (keys['KeyW'] || touch.thrUp ? 1 : 0) - (keys['KeyS'] || touch.thrDn ? 1 : 0);
-  throttle = Math.max(0, Math.min(1, throttle + tIn * dt * 0.35));
+  // Throttle is fixed at 50% — no pilot control.
 
   // Pitch / Roll — keyboard OR joystick / tilt (clamped to ±1)
   // Inverted pitch ("pull back to climb"): Down / joystick-down = nose up
@@ -864,15 +791,12 @@ function updateCamera(dt) {
 // ═══════════════════════════════════════════════════════════
 const euler = new THREE.Euler(0, 0, 0, 'YXZ');
 
-const thrReadout = document.getElementById('thr-readout');
 function updateHUD() {
   document.getElementById('hud-spd').textContent  = Math.round(displaySpeed) + ' m/s';
   document.getElementById('hud-alt').textContent  = Math.round(pos.y)  + ' m';
   document.getElementById('hud-dist').textContent = dist >= 1000
     ? (dist / 1000).toFixed(2) + ' km'
     : Math.round(dist) + ' m';
-  document.getElementById('thr-fill').style.height = (throttle * 100) + '%';
-  if (thrReadout) thrReadout.textContent = 'THR ' + Math.round(throttle * 100) + '%';
 
   // Artificial horizon
   euler.setFromQuaternion(quat, 'YXZ');
@@ -912,7 +836,7 @@ function restartGame() {
   pos.set(0, START_ALT, 0);
   quat.identity();
   speed   = 75;
-  throttle = 0.6;
+  throttle = 0.5;
   vvel    = 0;
   dist    = 0;
   maxDist = 0;
@@ -1019,8 +943,6 @@ function loop() {
 const touch = {
   rollIn:    0,   // -1 … +1
   pitchIn:   0,   // -1 … +1
-  thrUp:     false,
-  thrDn:     false,
 };
 
 const JOY_R = 52; // max knob travel radius (px)
@@ -1070,16 +992,6 @@ function setupMobileControls() {
   }, { passive: false });
   joyZone.addEventListener('touchend',   e => { e.preventDefault(); joyEnd(); }, { passive: false });
   joyZone.addEventListener('touchcancel',e => { e.preventDefault(); joyEnd(); }, { passive: false });
-
-  // ── Throttle buttons ──────────────────────────────────────
-  function holdBtn(id, field) {
-    const el = document.getElementById(id);
-    el.addEventListener('touchstart', e => { e.preventDefault(); touch[field] = true;  }, { passive: false });
-    el.addEventListener('touchend',   e => { e.preventDefault(); touch[field] = false; }, { passive: false });
-    el.addEventListener('touchcancel',e => { e.preventDefault(); touch[field] = false; }, { passive: false });
-  }
-  holdBtn('thr-up-btn', 'thrUp');
-  holdBtn('thr-dn-btn', 'thrDn');
 }
 
 setupMobileControls();
