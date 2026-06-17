@@ -921,6 +921,89 @@ async function submitScore() {
 }
 
 // ═══════════════════════════════════════════════════════════
+//  ENGINE SOUND  (synthesised old-prop-plane drone, Web Audio)
+// ═══════════════════════════════════════════════════════════
+let audioCtx = null;
+let engineBaseOsc = null, engineMaster = null;
+
+function startEngineSound() {
+  if (audioCtx) {            // already created — just resume if suspended
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    return;
+  }
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return;
+  audioCtx = new Ctx();
+
+  // Master volume — kept low so it sits in the background
+  engineMaster = audioCtx.createGain();
+  engineMaster.gain.value = 0.07;
+  engineMaster.connect(audioCtx.destination);
+
+  // Low-pass to keep it a warm, muffled rumble (old radial engine)
+  const lp = audioCtx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = 420;
+  lp.connect(engineMaster);
+
+  // Two slightly detuned sawtooths = throaty engine tone
+  engineBaseOsc = audioCtx.createOscillator();
+  engineBaseOsc.type = 'sawtooth';
+  engineBaseOsc.frequency.value = 55;
+  const osc2 = audioCtx.createOscillator();
+  osc2.type = 'sawtooth';
+  osc2.frequency.value = 55;
+  osc2.detune.value = 16;
+  engineBaseOsc.connect(lp);
+  osc2.connect(lp);
+
+  // LFO amplitude modulation = the "chug-chug" of the propeller
+  const throbGain = audioCtx.createGain();
+  throbGain.gain.value = 1;
+  lp.disconnect();
+  lp.connect(throbGain);
+  throbGain.connect(engineMaster);
+  const lfo = audioCtx.createOscillator();
+  lfo.type = 'sine';
+  lfo.frequency.value = 13;          // blade-pass throb rate
+  const lfoDepth = audioCtx.createGain();
+  lfoDepth.gain.value = 0.35;
+  lfo.connect(lfoDepth);
+  lfoDepth.connect(throbGain.gain);
+
+  // A touch of filtered noise for exhaust/air texture
+  const noiseBuf = audioCtx.createBuffer(1, audioCtx.sampleRate * 2, audioCtx.sampleRate);
+  const nd = noiseBuf.getChannelData(0);
+  for (let i = 0; i < nd.length; i++) nd[i] = (Math.random() * 2 - 1) * 0.5;
+  const noise = audioCtx.createBufferSource();
+  noise.buffer = noiseBuf;
+  noise.loop = true;
+  const noiseLP = audioCtx.createBiquadFilter();
+  noiseLP.type = 'lowpass';
+  noiseLP.frequency.value = 700;
+  const noiseGain = audioCtx.createGain();
+  noiseGain.gain.value = 0.04;
+  noise.connect(noiseLP); noiseLP.connect(noiseGain); noiseGain.connect(engineMaster);
+
+  engineBaseOsc.start();
+  osc2.start();
+  lfo.start();
+  noise.start();
+
+  // keep osc2's frequency tracking the base oscillator
+  engineBaseOsc._osc2 = osc2;
+}
+
+// Pitch the engine slightly with speed so dives/climbs are audible
+function updateEngineSound() {
+  if (!audioCtx || !engineBaseOsc) return;
+  const f = 45 + displaySpeed * 0.22;   // ~45–75 Hz across the speed range
+  const t = audioCtx.currentTime;
+  engineBaseOsc.frequency.setTargetAtTime(f, t, 0.1);
+  if (engineBaseOsc._osc2) engineBaseOsc._osc2.frequency.setTargetAtTime(f, t, 0.1);
+}
+
+// ═══════════════════════════════════════════════════════════
 //  GAME LOOP
 // ═══════════════════════════════════════════════════════════
 const clock = new THREE.Clock();
@@ -933,6 +1016,7 @@ function loop() {
     maybeUpdateTerrain();
     updateCamera(dt);
     updateHUD();
+    updateEngineSound();
   }
   renderer.render(scene, camera);
 }
@@ -1014,6 +1098,7 @@ document.getElementById('start-btn').addEventListener('click', () => {
   document.getElementById('start-screen').classList.remove('active');
   gameRunning = true;
   clock.start();
+  startEngineSound();   // user gesture → allowed to start audio
 });
 document.getElementById('submit-btn').addEventListener('click', submitScore);
 document.getElementById('restart-btn').addEventListener('click', restartGame);
