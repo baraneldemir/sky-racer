@@ -743,8 +743,9 @@ function updateFlight(dt) {
   throttle = Math.max(0, Math.min(1, throttle + tIn * dt * 0.35));
 
   // Pitch / Roll — keyboard OR joystick / tilt (clamped to ±1)
+  // Inverted pitch ("pull back to climb"): Down / joystick-down = nose up
   const pitchIn = Math.max(-1, Math.min(1,
-    (keys['ArrowUp'] ? 1 : 0) - (keys['ArrowDown'] ? 1 : 0) + touch.pitchIn));
+    (keys['ArrowDown'] ? 1 : 0) - (keys['ArrowUp'] ? 1 : 0) + touch.pitchIn));
   const rollIn  = Math.max(-1, Math.min(1,
     (keys['ArrowRight'] ? 1 : 0) - (keys['ArrowLeft'] ? 1 : 0) + touch.rollIn));
 
@@ -1032,7 +1033,7 @@ function setupMobileControls() {
     const nx = len > 0 ? dx / len : 0;
     const ny = len > 0 ? dy / len : 0;
     touch.rollIn  =  nx * (clamp / JOY_R);
-    touch.pitchIn = -ny * (clamp / JOY_R); // up on screen = pitch up
+    touch.pitchIn = ny * (clamp / JOY_R); // drag joystick down = pitch up (inverted)
     joyKnob.style.transform =
       `translate(calc(-50% + ${nx * clamp}px), calc(-50% + ${ny * clamp}px))`;
   }
