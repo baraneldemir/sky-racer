@@ -20,13 +20,6 @@ export default async (req) => {
 
   // ── GET ──────────────────────────────────────────────────
   if (req.method === 'GET') {
-    // One-time maintenance reset (remove after use):
-    //   GET /api/leaderboard?reset=<secret>
-    const url = new URL(req.url);
-    if (url.searchParams.get('reset') === '1618c8ddaf2a42c9d4c5687e') {
-      await store.set(SCORE_KEY, JSON.stringify([]));
-      return Response.json({ reset: true }, { headers });
-    }
     try {
       // Strong consistency so a player sees their score the instant it lands
       const data = await store.get(SCORE_KEY, { type: 'json', consistency: 'strong' });
