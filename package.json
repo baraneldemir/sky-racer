@@ -1,0 +1,8 @@
+{
+  "name": "sky-racer",
+  "version": "1.0.0",
+  "description": "3D flight simulator with leaderboard",
+  "dependencies": {
+    "@netlify/blobs": "^8.1.0"
+  }
+}

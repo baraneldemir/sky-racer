@@ -1,0 +1,1050 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Sky Racer — Flight Simulator</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { overflow: hidden; background: #87CEEB; font-family: 'Courier New', monospace; }
+  canvas { display: block; }
+
+  /* ── HUD ── */
+  #hud {
+    position: fixed; inset: 0;
+    pointer-events: none;
+    user-select: none;
+  }
+
+  .stat-panel {
+    position: absolute;
+    top: 24px; left: 24px;
+    color: #fff;
+    text-shadow: 0 0 6px rgba(0,0,0,.9), 0 1px 3px rgba(0,0,0,.8);
+  }
+  .stat { margin-bottom: 10px; }
+  .stat-label { font-size: 10px; letter-spacing: 3px; opacity: .75; text-transform: uppercase; }
+  .stat-value { font-size: 26px; font-weight: bold; line-height: 1; }
+
+  /* throttle bar */
+  .throttle-wrap {
+    position: absolute;
+    bottom: 44px; left: 40px;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+  }
+  .thr-label { color: #fff; font-size: 10px; letter-spacing: 3px;
+    text-shadow: 0 0 4px rgba(0,0,0,.8); }
+  .thr-bar {
+    width: 18px; height: 110px;
+    background: rgba(0,0,0,.45);
+    border: 1px solid rgba(255,255,255,.35);
+    border-radius: 3px;
+    position: relative; overflow: hidden;
+  }
+  .thr-fill {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    background: linear-gradient(to top, #e53, #fa0, #4e4);
+    transition: height .08s;
+  }
+
+  /* artificial horizon */
+  #horizon-wrap {
+    position: absolute;
+    bottom: 30px; left: 50%;
+    transform: translateX(-50%);
+  }
+  .horizon-ring {
+    width: 110px; height: 110px;
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,.7);
+    overflow: hidden;
+    position: relative;
+  }
+  .horizon-sky {
+    position: absolute; inset: 0;
+    background: linear-gradient(to bottom, #5ba8e0 50%, #5a9a5a 50%);
+    transform-origin: center;
+  }
+  .horizon-line {
+    position: absolute;
+    left: -5%; width: 110%;
+    height: 2px; background: #fff;
+    top: 50%; transform: translateY(-50%);
+  }
+  .horizon-center {
+    position: absolute;
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    width: 40px; height: 2px;
+    background: rgba(255,200,0,.9);
+    box-shadow: 0 0 4px rgba(255,200,0,.6);
+  }
+  .horizon-center::before, .horizon-center::after {
+    content: '';
+    position: absolute;
+    width: 2px; height: 12px;
+    background: rgba(255,200,0,.9);
+    top: -5px;
+  }
+  .horizon-center::before { left: 0; }
+  .horizon-center::after  { right: 0; }
+
+  /* stall warning */
+  #stall-warn {
+    position: absolute;
+    top: 45%; left: 50%;
+    transform: translate(-50%, -50%);
+    color: #f44; font-size: 22px; font-weight: bold;
+    letter-spacing: 4px;
+    text-shadow: 0 0 12px rgba(255,68,68,.7);
+    animation: blink .45s infinite;
+    display: none;
+  }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+  /* leaderboard */
+  #leaderboard {
+    position: absolute;
+    top: 24px; right: 24px;
+    background: rgba(0,0,20,.72);
+    border: 1px solid rgba(100,160,255,.35);
+    border-radius: 10px;
+    padding: 14px 16px;
+    min-width: 210px;
+    color: #fff;
+    backdrop-filter: blur(5px);
+  }
+  #leaderboard h3 {
+    font-size: 11px; letter-spacing: 3px;
+    text-transform: uppercase;
+    color: #9bd; margin-bottom: 12px; text-align: center;
+  }
+  .lb-row {
+    display: flex; align-items: center;
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(255,255,255,.08);
+    font-size: 12px;
+  }
+  .lb-rank { color: #888; width: 22px; flex-shrink: 0; }
+  .lb-name { flex: 1; padding: 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lb-dist { color: #4f8; font-weight: bold; flex-shrink: 0; }
+  .lb-empty { color: #556; font-size: 11px; text-align: center; padding: 8px 0; }
+
+  /* controls hint */
+  #hint {
+    position: absolute;
+    bottom: 22px; right: 22px;
+    color: rgba(255,255,255,.55);
+    font-size: 11px;
+    line-height: 2;
+    text-align: right;
+  }
+
+  /* ── overlay screens ── */
+  .overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.82);
+    display: none; align-items: center; justify-content: center;
+    flex-direction: column; gap: 18px;
+    color: #fff;
+    z-index: 100;
+    pointer-events: all;
+  }
+  .overlay.active { display: flex; }
+
+  #start-screen h1 { font-size: 52px; letter-spacing: 6px; color: #9bd;
+    text-shadow: 0 0 30px rgba(100,180,255,.5); }
+  #start-screen p { color: rgba(255,255,255,.6); font-size: 13px; letter-spacing: 1px; text-align: center; }
+  #start-screen .key-table { border-collapse: collapse; font-size: 13px; }
+  #start-screen .key-table td { padding: 4px 12px; }
+  #start-screen .key-table td:first-child { color: #fa0; text-align: right; font-weight: bold; }
+
+  #crash-screen h2 { font-size: 46px; color: #f44; letter-spacing: 4px;
+    text-shadow: 0 0 20px rgba(255,68,68,.5); }
+  #crash-dist { font-size: 26px; color: #4f8; }
+
+  .big-btn {
+    padding: 11px 30px;
+    font-size: 14px; font-family: 'Courier New', monospace;
+    letter-spacing: 2px; text-transform: uppercase;
+    background: #1a6fbb; border: 1px solid #4af;
+    border-radius: 6px; color: #fff; cursor: pointer;
+    transition: background .15s;
+  }
+  .big-btn:hover { background: #2080d0; }
+  .big-btn.muted { background: #2a2a2a; border-color: #555; }
+  .big-btn.muted:hover { background: #3a3a3a; }
+
+  .name-input {
+    padding: 10px 18px; font-size: 16px;
+    font-family: 'Courier New', monospace;
+    background: rgba(255,255,255,.08);
+    border: 1px solid rgba(255,255,255,.35);
+    border-radius: 6px; color: #fff;
+    text-align: center; outline: none; min-width: 240px;
+  }
+  .name-input::placeholder { color: rgba(255,255,255,.35); }
+  .name-input:focus { border-color: #4af; }
+
+  /* loading */
+  #loading {
+    position: fixed; inset: 0;
+    background: #0d1a28;
+    display: flex; align-items: center; justify-content: center;
+    color: #9bd; font-size: 22px; letter-spacing: 6px;
+    z-index: 200;
+  }
+
+  /* ── Mobile controls ── */
+  #mobile-controls {
+    display: none;   /* shown via JS on touch devices */
+    position: fixed; inset: 0;
+    pointer-events: none;
+    z-index: 50;
+  }
+
+  /* Throttle buttons — bottom-left */
+  #thr-pad {
+    position: absolute;
+    bottom: 36px; left: 30px;
+    display: flex; flex-direction: column; gap: 10px;
+    pointer-events: all;
+  }
+  .thr-btn {
+    width: 64px; height: 64px;
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,.45);
+    background: rgba(0,0,0,.38);
+    color: #fff;
+    font-size: 26px; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+    backdrop-filter: blur(4px);
+  }
+  .thr-btn:active { background: rgba(255,255,255,.18); }
+
+  /* Virtual joystick — bottom-right */
+  #joy-zone {
+    position: absolute;
+    bottom: 20px; right: 20px;
+    width: 160px; height: 160px;
+    pointer-events: all;
+    touch-action: none;
+  }
+  #joy-base {
+    width: 160px; height: 160px;
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,.35);
+    background: rgba(0,0,0,.28);
+    backdrop-filter: blur(4px);
+    position: relative;
+  }
+  #joy-knob {
+    width: 56px; height: 56px;
+    border-radius: 50%;
+    background: rgba(255,255,255,.55);
+    border: 2px solid rgba(255,255,255,.8);
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    transition: transform .05s;
+    pointer-events: none;
+  }
+
+  /* Tilt-mode toggle */
+  #tilt-btn {
+    position: absolute;
+    bottom: 36px; left: 50%;
+    transform: translateX(-50%);
+    padding: 8px 18px;
+    border-radius: 20px;
+    border: 1px solid rgba(255,255,255,.4);
+    background: rgba(0,0,0,.38);
+    color: rgba(255,255,255,.8);
+    font-family: 'Courier New', monospace;
+    font-size: 11px; letter-spacing: 2px;
+    text-transform: uppercase;
+    cursor: pointer;
+    pointer-events: all;
+    touch-action: none;
+    backdrop-filter: blur(4px);
+  }
+  #tilt-btn.active {
+    background: rgba(80,200,120,.35);
+    border-color: rgba(80,200,120,.7);
+    color: #4f8;
+  }
+
+  /* Hide desktop hint on touch screens */
+  @media (hover: none) and (pointer: coarse) {
+    #hint { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div id="loading">LOADING…</div>
+
+<!-- ── HUD ── -->
+<div id="hud">
+  <div class="stat-panel">
+    <div class="stat">
+      <div class="stat-label">Speed</div>
+      <div class="stat-value" id="hud-spd">0 m/s</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Altitude</div>
+      <div class="stat-value" id="hud-alt">0 m</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Distance</div>
+      <div class="stat-value" id="hud-dist">0 m</div>
+    </div>
+  </div>
+
+  <div class="throttle-wrap">
+    <div class="thr-label">THR</div>
+    <div class="thr-bar">
+      <div class="thr-fill" id="thr-fill" style="height:60%"></div>
+    </div>
+  </div>
+
+  <div id="horizon-wrap">
+    <div class="horizon-ring">
+      <div class="horizon-sky" id="h-sky"></div>
+      <div class="horizon-line"></div>
+    </div>
+    <div class="horizon-center"></div>
+  </div>
+
+  <div id="stall-warn">!! STALL !!</div>
+
+  <div id="leaderboard">
+    <h3>🏆 Leaderboard</h3>
+    <div id="lb-body"><div class="lb-empty">Loading…</div></div>
+  </div>
+
+  <div id="hint">
+    ↑ ↓ &nbsp; Pitch<br>
+    ← → &nbsp; Roll<br>
+    W / S &nbsp; Throttle<br>
+    R &nbsp;&nbsp;&nbsp;&nbsp; Restart
+  </div>
+</div>
+
+<!-- ── Start screen ── -->
+<div id="start-screen" class="overlay active">
+  <h1>SKY RACER</h1>
+  <p>Fly as far as you can and compete on the leaderboard!</p>
+  <table class="key-table">
+    <tr><td>↑ / ↓</td><td>Pitch nose up / down</td></tr>
+    <tr><td>← / →</td><td>Roll left / right</td></tr>
+    <tr><td>W / S</td><td>Throttle up / down</td></tr>
+    <tr><td>R</td><td>Restart</td></tr>
+  </table>
+  <button class="big-btn" id="start-btn">FLY!</button>
+</div>
+
+<!-- ── Crash screen ── -->
+<div id="crash-screen" class="overlay">
+  <h2>CRASHED</h2>
+  <div id="crash-dist">0.00 km</div>
+  <input class="name-input" id="player-name" type="text" placeholder="Your name" maxlength="24" autocomplete="off">
+  <div style="display:flex;gap:12px">
+    <button class="big-btn" id="submit-btn">Submit Score</button>
+    <button class="big-btn muted" id="restart-btn">Play Again</button>
+  </div>
+</div>
+
+<!-- ── Mobile touch controls ── -->
+<div id="mobile-controls">
+  <!-- Throttle up/down -->
+  <div id="thr-pad">
+    <button class="thr-btn" id="thr-up-btn">▲</button>
+    <button class="thr-btn" id="thr-dn-btn">▼</button>
+  </div>
+
+  <!-- Tilt mode toggle -->
+  <button id="tilt-btn">⦿ Tilt</button>
+
+  <!-- Pitch / Roll joystick -->
+  <div id="joy-zone">
+    <div id="joy-base">
+      <div id="joy-knob"></div>
+    </div>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+// ═══════════════════════════════════════════════════════════
+//  CONSTANTS
+// ═══════════════════════════════════════════════════════════
+const TERRAIN_SIZE   = 3200;   // mesh size (m)
+const TERRAIN_SEGS   = 130;    // segments per side
+const TERRAIN_STEP   = 80;     // update terrain every N metres of player movement
+
+const MAX_SPEED      = 130;    // m/s at full throttle
+const CRUISE_SPEED   = 80;     // m/s — wings-level neutral lift
+const STALL_SPEED    = 42;     // m/s — below this, lift collapses
+const PITCH_RATE     = 0.95;   // rad/s
+const ROLL_RATE      = 1.4;    // rad/s
+const GRAVITY        = 9.8;    // m/s²
+const START_ALT      = 180;    // m above sea level
+
+// ═══════════════════════════════════════════════════════════
+//  THREE.JS CORE
+// ═══════════════════════════════════════════════════════════
+const scene    = new THREE.Scene();
+scene.background = new THREE.Color(0x87CEEB);
+scene.fog = new THREE.Fog(0x87CEEB, 900, 2800);
+
+const camera = new THREE.PerspectiveCamera(68, innerWidth / innerHeight, 0.5, 5000);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+
+// Lights
+scene.add(new THREE.AmbientLight(0xffffff, 0.85));
+const sun = new THREE.DirectionalLight(0xfff8e8, 1.2);
+sun.position.set(400, 600, 200);
+scene.add(sun);
+
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// ═══════════════════════════════════════════════════════════
+//  TERRAIN
+// ═══════════════════════════════════════════════════════════
+function terrainY(wx, wz) {
+  // Flatten spawn area
+  const d = Math.sqrt(wx * wx + wz * wz);
+  const flat = Math.max(0, 1 - d / 600);
+
+  const h =
+    Math.sin(wx * 0.0028) * 28 +
+    Math.sin(wz * 0.0022) * 38 +
+    Math.sin(wx * 0.009  + wz * 0.007) * 14 +
+    Math.sin(wx * 0.002  - wz * 0.004) * 22 +
+    Math.cos(wx * 0.005  + wz * 0.003) * 10 +
+    Math.sin(wx * 0.0015 + wz * 0.001) * 50; // large rolling hills
+
+  return h * (1 - flat);
+}
+
+function terrainColor(h) {
+  if (h < 2)  return new THREE.Color(0x3a7a4e);
+  if (h < 20) return new THREE.Color(0x4a8c5a);
+  if (h < 45) return new THREE.Color(0x5a9e68);
+  if (h < 70) return new THREE.Color(0x6ab070);
+  return         new THREE.Color(0x8ac878); // high meadows
+}
+
+let terrainOffsetX = 0, terrainOffsetZ = 0;
+
+function buildTerrainGeometry() {
+  const geo = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, TERRAIN_SEGS, TERRAIN_SEGS);
+  geo.rotateX(-Math.PI / 2);
+  return geo;
+}
+
+function updateTerrainMesh(mesh, cx, cz) {
+  terrainOffsetX = Math.round(cx / TERRAIN_STEP) * TERRAIN_STEP;
+  terrainOffsetZ = Math.round(cz / TERRAIN_STEP) * TERRAIN_STEP;
+  mesh.position.set(terrainOffsetX, 0, terrainOffsetZ);
+
+  const pos  = mesh.geometry.attributes.position;
+  const col  = mesh.geometry.attributes.color;
+
+  for (let i = 0; i < pos.count; i++) {
+    const lx = pos.getX(i);
+    const lz = pos.getZ(i);
+    const wx = lx + terrainOffsetX;
+    const wz = lz + terrainOffsetZ;
+    const h  = terrainY(wx, wz);
+    pos.setY(i, h);
+    const c = terrainColor(h);
+    col.setXYZ(i, c.r, c.g, c.b);
+  }
+
+  pos.needsUpdate = true;
+  col.needsUpdate = true;
+  mesh.geometry.computeVertexNormals();
+}
+
+const terrainGeo = buildTerrainGeometry();
+// Pre-allocate color buffer
+const colData = new Float32Array(terrainGeo.attributes.position.count * 3);
+terrainGeo.setAttribute('color', new THREE.BufferAttribute(colData, 3));
+
+const terrainMesh = new THREE.Mesh(
+  terrainGeo,
+  new THREE.MeshLambertMaterial({ vertexColors: true })
+);
+terrainMesh.receiveShadow = false;
+scene.add(terrainMesh);
+updateTerrainMesh(terrainMesh, 0, 0);
+
+// Sea / ground base far below (catches any terrain gaps)
+const seaGeo = new THREE.PlaneGeometry(100000, 100000);
+seaGeo.rotateX(-Math.PI / 2);
+const seaMesh = new THREE.Mesh(seaGeo, new THREE.MeshBasicMaterial({ color: 0x2e7d4a }));
+seaMesh.position.y = -8;
+scene.add(seaMesh);
+
+// Simple runway at spawn for visual reference
+const runwayGeo = new THREE.PlaneGeometry(20, 300);
+runwayGeo.rotateX(-Math.PI / 2);
+const runway = new THREE.Mesh(runwayGeo, new THREE.MeshBasicMaterial({ color: 0x555566 }));
+runway.position.set(0, 0.2, -100);
+scene.add(runway);
+
+// ═══════════════════════════════════════════════════════════
+//  CLOUDS
+// ═══════════════════════════════════════════════════════════
+// MeshBasicMaterial keeps clouds fully white regardless of lighting
+const cloudMat = new THREE.MeshBasicMaterial({
+  color: 0xffffff, transparent: true, opacity: 0.82
+});
+for (let i = 0; i < 70; i++) {
+  const g = new THREE.Group();
+  const n = 3 + Math.floor(Math.random() * 4);
+  for (let j = 0; j < n; j++) {
+    const bx = new THREE.Mesh(
+      new THREE.BoxGeometry(
+        28 + Math.random() * 52,
+        12 + Math.random() * 18,
+        22 + Math.random() * 40
+      ),
+      cloudMat
+    );
+    bx.position.set(
+      (Math.random() - .5) * 65,
+      (Math.random() - .5) * 14,
+      (Math.random() - .5) * 45
+    );
+    g.add(bx);
+  }
+  g.position.set(
+    (Math.random() - .5) * 5000,
+    210 + Math.random() * 350,
+    (Math.random() - .5) * 5000
+  );
+  scene.add(g);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  AIRPLANE MODEL
+// ═══════════════════════════════════════════════════════════
+function makePlane() {
+  const g = new THREE.Group();
+
+  const white = new THREE.MeshLambertMaterial({ color: 0xf2f2f2 });
+  const red   = new THREE.MeshLambertMaterial({ color: 0xcc2222 });
+  const dark  = new THREE.MeshLambertMaterial({ color: 0x2a2a2a });
+  const glass = new THREE.MeshLambertMaterial({ color: 0x88ccff, transparent: true, opacity: .7 });
+
+  const add = (geo, mat, px=0, py=0, pz=0, rx=0, ry=0, rz=0) => {
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(px, py, pz);
+    m.rotation.set(rx, ry, rz);
+    m.castShadow = true;
+    g.add(m);
+    return m;
+  };
+
+  // Fuselage
+  add(new THREE.BoxGeometry(1.2, 1.0, 6.2), white);
+
+  // Nose cone
+  add(new THREE.ConeGeometry(0.58, 1.6, 8), red, 0, 0, -3.9, Math.PI/2, 0, 0);
+
+  // Wings
+  add(new THREE.BoxGeometry(15, 0.2, 2.8), white, 0, -0.08, 0.3);
+  // Wing tips
+  add(new THREE.BoxGeometry(1.1, 0.28, 2.8), red, -7.5, -0.08, 0.3);
+  add(new THREE.BoxGeometry(1.1, 0.28, 2.8), red,  7.5, -0.08, 0.3);
+
+  // H-stab
+  add(new THREE.BoxGeometry(5.5, 0.15, 1.6), white, 0, 0.1, 2.9);
+  // V-stab
+  add(new THREE.BoxGeometry(0.18, 1.9, 1.9), red, 0, 0.95, 2.8);
+
+  // Cockpit canopy
+  add(new THREE.BoxGeometry(0.85, 0.7, 1.8), glass, 0, 0.75, -0.8);
+
+  // Engine ring
+  add(new THREE.CylinderGeometry(0.44, 0.52, 0.7, 8), dark, 0, 0, -3.1, Math.PI/2, 0, 0);
+
+  // Propeller group
+  const prop = new THREE.Group();
+  prop.name = 'prop';
+  const bladeMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
+  for (let i = 0; i < 3; i++) {
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.18, 2.1, 0.1), bladeMat);
+    blade.rotation.z = (i / 3) * Math.PI * 2;
+    prop.add(blade);
+  }
+  prop.position.z = -4.7;
+  g.add(prop);
+
+  return g;
+}
+
+const planeMesh = makePlane();
+scene.add(planeMesh);
+
+// ═══════════════════════════════════════════════════════════
+//  FLIGHT STATE
+// ═══════════════════════════════════════════════════════════
+let pos        = new THREE.Vector3(0, START_ALT, 0);
+let quat       = new THREE.Quaternion();
+let speed      = 75;
+let throttle   = 0.6;
+let vvel       = 0;       // vertical velocity (m/s, Y axis)
+let dist       = 0;
+let maxDist    = 0;
+const origin   = new THREE.Vector3(0, 0, 0);
+
+const camPos   = new THREE.Vector3(0, START_ALT + 6, 20);
+const camLook  = new THREE.Vector3(0, START_ALT, -20);
+
+let gameRunning = false;
+let crashed     = false;
+
+// ═══════════════════════════════════════════════════════════
+//  INPUT
+// ═══════════════════════════════════════════════════════════
+const keys = {};
+window.addEventListener('keydown', e => { keys[e.code] = true; });
+window.addEventListener('keyup',   e => { keys[e.code] = false; });
+
+// ═══════════════════════════════════════════════════════════
+//  PHYSICS UPDATE
+// ═══════════════════════════════════════════════════════════
+const _right   = new THREE.Vector3();
+const _fwd     = new THREE.Vector3();
+const _localUp = new THREE.Vector3();
+const _worldUp = new THREE.Vector3(0, 1, 0);
+const _pitchQ  = new THREE.Quaternion();
+const _rollQ   = new THREE.Quaternion();
+const _yawQ    = new THREE.Quaternion();
+
+function updateFlight(dt) {
+  if (!gameRunning || crashed) return;
+
+  // Throttle — keyboard OR touch buttons
+  const tIn = (keys['KeyW'] || touch.thrUp ? 1 : 0) - (keys['KeyS'] || touch.thrDn ? 1 : 0);
+  throttle = Math.max(0, Math.min(1, throttle + tIn * dt * 0.35));
+
+  // Pitch / Roll — keyboard OR joystick / tilt (clamped to ±1)
+  const pitchIn = Math.max(-1, Math.min(1,
+    (keys['ArrowUp'] ? 1 : 0) - (keys['ArrowDown'] ? 1 : 0) + touch.pitchIn));
+  const rollIn  = Math.max(-1, Math.min(1,
+    (keys['ArrowRight'] ? 1 : 0) - (keys['ArrowLeft'] ? 1 : 0) + touch.rollIn));
+
+  // Local axes
+  _right.set(1, 0, 0).applyQuaternion(quat);
+  _fwd.set(0, 0, -1).applyQuaternion(quat);
+  _localUp.set(0, 1, 0).applyQuaternion(quat);
+
+  // Rotate
+  if (pitchIn !== 0) {
+    _pitchQ.setFromAxisAngle(_right, pitchIn * PITCH_RATE * dt);
+    quat.premultiply(_pitchQ);
+  }
+  if (rollIn !== 0) {
+    _rollQ.setFromAxisAngle(_fwd, rollIn * ROLL_RATE * dt);
+    quat.premultiply(_rollQ);
+  }
+
+  // Coordinated turn (bank → yaw)
+  const bankSin = _right.y; // ≈ sin(roll angle) wrt world
+  _yawQ.setFromAxisAngle(_worldUp, -bankSin * (speed / 90) * 0.55 * dt);
+  quat.premultiply(_yawQ);
+  quat.normalize();
+
+  // Speed: approach throttle * MAX_SPEED with simple drag
+  const targetSpd = throttle * MAX_SPEED;
+  speed += (targetSpd - speed) * Math.min(dt * 0.9, 1);
+  speed = Math.max(0, speed);
+
+  // Move forward in facing direction
+  _fwd.set(0, 0, -1).applyQuaternion(quat);
+  pos.addScaledVector(_fwd, speed * dt);
+
+  // Lift / gravity (vertical dynamics)
+  _localUp.set(0, 1, 0).applyQuaternion(quat);
+  const speedRatio  = speed / CRUISE_SPEED;
+  const liftFactor  = speedRatio * speedRatio;   // quadratic with speed
+  const liftAccel   = GRAVITY * liftFactor * _localUp.y;
+  const netVertAccel = -GRAVITY + liftAccel;
+
+  vvel += netVertAccel * dt;
+  // Damp vertical velocity slightly when wings are level & good speed
+  if (speed > STALL_SPEED && Math.abs(_localUp.y) > 0.75) {
+    vvel *= (1 - 0.06 * dt);
+  }
+  vvel = Math.max(-120, Math.min(120, vvel));
+  pos.y += vvel * dt;
+
+  // Stall indicator
+  const stalling = speed < STALL_SPEED;
+  document.getElementById('stall-warn').style.display = stalling ? 'block' : 'none';
+
+  // Distance (XZ plane)
+  const dx = pos.x - origin.x;
+  const dz = pos.z - origin.z;
+  dist = Math.sqrt(dx * dx + dz * dz);
+  if (dist > maxDist) maxDist = dist;
+
+  // Terrain collision
+  const groundY = terrainY(pos.x, pos.z);
+  if (pos.y <= groundY + 1.8) {
+    pos.y = groundY + 1.8;
+    doCrash();
+    return;
+  }
+
+  // Apply to mesh
+  planeMesh.position.copy(pos);
+  planeMesh.quaternion.copy(quat);
+
+  // Spin prop
+  const prop = planeMesh.getObjectByName('prop');
+  if (prop) prop.rotation.z += speed * 0.022 * dt * 60;
+
+  // Restart key
+  if (keys['KeyR']) restartGame();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════
+const _camOff  = new THREE.Vector3();
+const _camTgt  = new THREE.Vector3();
+
+function updateCamera(dt) {
+  _camOff.set(0, 5, 20).applyQuaternion(quat);
+  const wantPos = pos.clone().add(_camOff);
+  camPos.lerp(wantPos, Math.min(0.1, dt * 5));
+
+  _camTgt.set(0, 0, -40).applyQuaternion(quat);
+  camLook.lerp(pos.clone().add(_camTgt), Math.min(0.1, dt * 5));
+
+  camera.position.copy(camPos);
+  camera.lookAt(camLook);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  HUD UPDATE
+// ═══════════════════════════════════════════════════════════
+const euler = new THREE.Euler(0, 0, 0, 'YXZ');
+
+function updateHUD() {
+  document.getElementById('hud-spd').textContent  = Math.round(speed)  + ' m/s';
+  document.getElementById('hud-alt').textContent  = Math.round(pos.y)  + ' m';
+  document.getElementById('hud-dist').textContent = dist >= 1000
+    ? (dist / 1000).toFixed(2) + ' km'
+    : Math.round(dist) + ' m';
+  document.getElementById('thr-fill').style.height = (throttle * 100) + '%';
+
+  // Artificial horizon
+  euler.setFromQuaternion(quat, 'YXZ');
+  const pitchDeg = euler.x * (180 / Math.PI);
+  const rollDeg  = euler.z * (180 / Math.PI);
+  const sky = document.getElementById('h-sky');
+  sky.style.transform =
+    `rotate(${rollDeg}deg) translateY(${pitchDeg * 1.5}px)`;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  TERRAIN STREAMING
+// ═══════════════════════════════════════════════════════════
+function maybeUpdateTerrain() {
+  const dx = pos.x - terrainOffsetX;
+  const dz = pos.z - terrainOffsetZ;
+  if (Math.abs(dx) > TERRAIN_STEP || Math.abs(dz) > TERRAIN_STEP) {
+    updateTerrainMesh(terrainMesh, pos.x, pos.z);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  CRASH / RESTART
+// ═══════════════════════════════════════════════════════════
+function doCrash() {
+  if (crashed) return;
+  crashed = true;
+  gameRunning = false;
+
+  const km = (maxDist / 1000).toFixed(2);
+  document.getElementById('crash-dist').textContent = km + ' km flown';
+  document.getElementById('crash-screen').classList.add('active');
+}
+
+function restartGame() {
+  // Reset flight state
+  pos.set(0, START_ALT, 0);
+  quat.identity();
+  speed   = 75;
+  throttle = 0.6;
+  vvel    = 0;
+  dist    = 0;
+  maxDist = 0;
+  crashed = false;
+
+  // Reset camera
+  camPos.set(0, START_ALT + 6, 20);
+  camLook.set(0, START_ALT, -20);
+
+  // Hide overlays
+  document.getElementById('crash-screen').classList.remove('active');
+  document.getElementById('stall-warn').style.display = 'none';
+
+  // Reset submit button
+  const btn = document.getElementById('submit-btn');
+  btn.textContent = 'Submit Score';
+  btn.disabled = false;
+  document.getElementById('player-name').value = '';
+
+  gameRunning = true;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  LEADERBOARD
+// ═══════════════════════════════════════════════════════════
+function esc(t) {
+  return String(t)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+async function loadLeaderboard() {
+  try {
+    const r = await fetch('/api/leaderboard');
+    if (!r.ok) throw new Error('fetch failed');
+    const scores = await r.json();
+    const el = document.getElementById('lb-body');
+    if (!scores.length) {
+      el.innerHTML = '<div class="lb-empty">No scores yet — be first!</div>';
+      return;
+    }
+    el.innerHTML = scores.map((s, i) => `
+      <div class="lb-row">
+        <span class="lb-rank">#${i + 1}</span>
+        <span class="lb-name">${esc(s.name)}</span>
+        <span class="lb-dist">${(s.distance / 1000).toFixed(1)}km</span>
+      </div>`).join('');
+  } catch {
+    document.getElementById('lb-body').innerHTML =
+      '<div class="lb-empty">Offline</div>';
+  }
+}
+
+async function submitScore() {
+  const name = document.getElementById('player-name').value.trim();
+  if (!name) {
+    document.getElementById('player-name').focus();
+    return;
+  }
+  const btn = document.getElementById('submit-btn');
+  btn.textContent = 'Submitting…';
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/leaderboard', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, distance: Math.round(maxDist) })
+    });
+    if (r.ok) {
+      btn.textContent = '✓ Submitted!';
+      await loadLeaderboard();
+    } else {
+      btn.textContent = 'Error — try again';
+      btn.disabled = false;
+    }
+  } catch {
+    btn.textContent = 'Error — try again';
+    btn.disabled = false;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  GAME LOOP
+// ═══════════════════════════════════════════════════════════
+const clock = new THREE.Clock();
+
+function loop() {
+  requestAnimationFrame(loop);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  if (gameRunning) {
+    updateFlight(dt);
+    maybeUpdateTerrain();
+    updateCamera(dt);
+    updateHUD();
+  }
+  renderer.render(scene, camera);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  MOBILE TOUCH CONTROLS
+// ═══════════════════════════════════════════════════════════
+const touch = {
+  rollIn:    0,   // -1 … +1
+  pitchIn:   0,   // -1 … +1
+  thrUp:     false,
+  thrDn:     false,
+  tiltMode:  false,
+};
+
+const JOY_R = 52; // max knob travel radius (px)
+
+function setupMobileControls() {
+  const isTouchDevice = navigator.maxTouchPoints > 0 || 'ontouchstart' in window;
+  if (!isTouchDevice) return;
+
+  document.getElementById('mobile-controls').style.display = 'block';
+
+  // ── Joystick ──────────────────────────────────────────────
+  const joyZone = document.getElementById('joy-zone');
+  const joyKnob = document.getElementById('joy-knob');
+  let joyId = null, joyOriginX = 0, joyOriginY = 0;
+
+  function joyStart(t) {
+    joyId = t.identifier;
+    joyOriginX = t.clientX;
+    joyOriginY = t.clientY;
+  }
+  function joyMove(t) {
+    if (t.identifier !== joyId) return;
+    const dx = t.clientX - joyOriginX;
+    const dy = t.clientY - joyOriginY;
+    const len = Math.sqrt(dx*dx + dy*dy);
+    const clamp = Math.min(len, JOY_R);
+    const nx = len > 0 ? dx / len : 0;
+    const ny = len > 0 ? dy / len : 0;
+    touch.rollIn  =  nx * (clamp / JOY_R);
+    touch.pitchIn = -ny * (clamp / JOY_R); // up on screen = pitch up
+    joyKnob.style.transform =
+      `translate(calc(-50% + ${nx * clamp}px), calc(-50% + ${ny * clamp}px))`;
+  }
+  function joyEnd() {
+    joyId = null;
+    touch.rollIn = 0; touch.pitchIn = 0;
+    joyKnob.style.transform = 'translate(-50%,-50%)';
+  }
+
+  joyZone.addEventListener('touchstart', e => {
+    e.preventDefault();
+    joyStart(e.changedTouches[0]);
+  }, { passive: false });
+  joyZone.addEventListener('touchmove', e => {
+    e.preventDefault();
+    for (const t of e.changedTouches) joyMove(t);
+  }, { passive: false });
+  joyZone.addEventListener('touchend',   e => { e.preventDefault(); joyEnd(); }, { passive: false });
+  joyZone.addEventListener('touchcancel',e => { e.preventDefault(); joyEnd(); }, { passive: false });
+
+  // ── Throttle buttons ──────────────────────────────────────
+  function holdBtn(id, field) {
+    const el = document.getElementById(id);
+    el.addEventListener('touchstart', e => { e.preventDefault(); touch[field] = true;  }, { passive: false });
+    el.addEventListener('touchend',   e => { e.preventDefault(); touch[field] = false; }, { passive: false });
+    el.addEventListener('touchcancel',e => { e.preventDefault(); touch[field] = false; }, { passive: false });
+  }
+  holdBtn('thr-up-btn', 'thrUp');
+  holdBtn('thr-dn-btn', 'thrDn');
+
+  // ── Tilt / gyro mode ─────────────────────────────────────
+  const tiltBtn = document.getElementById('tilt-btn');
+  tiltBtn.addEventListener('click', async () => {
+    if (!touch.tiltMode) {
+      // iOS 13+ needs explicit permission
+      if (typeof DeviceOrientationEvent !== 'undefined' &&
+          typeof DeviceOrientationEvent.requestPermission === 'function') {
+        try {
+          const state = await DeviceOrientationEvent.requestPermission();
+          if (state !== 'granted') return;
+        } catch { return; }
+      }
+      touch.tiltMode = true;
+      tiltBtn.textContent = '⦿ Tilt ON';
+      tiltBtn.classList.add('active');
+      // Hide joystick while tilting
+      joyZone.style.opacity = '0.3';
+      joyZone.style.pointerEvents = 'none';
+    } else {
+      touch.tiltMode = false;
+      tiltBtn.textContent = '⦿ Tilt';
+      tiltBtn.classList.remove('active');
+      joyZone.style.opacity = '';
+      joyZone.style.pointerEvents = '';
+      touch.rollIn = 0; touch.pitchIn = 0;
+    }
+  });
+
+  // Device orientation → roll/pitch
+  let baseAlpha = null, baseBeta = null;
+  window.addEventListener('deviceorientation', e => {
+    if (!touch.tiltMode || !gameRunning) return;
+    // gamma = left/right tilt (-90 … +90)
+    // beta  = front/back tilt (-180 … +180), ~45 when held upright
+    if (baseBeta === null) { baseBeta = e.beta; }
+    const roll  = (e.gamma ?? 0) / 40;          // ±40° = full roll
+    const pitch = -(e.beta - baseBeta) / 35;    // tilt forward from base = pitch down
+    touch.rollIn  = Math.max(-1, Math.min(1, roll));
+    touch.pitchIn = Math.max(-1, Math.min(1, pitch));
+  });
+}
+
+setupMobileControls();
+
+// Prevent browser scroll / pinch-zoom from eating touch events on the canvas
+document.addEventListener('touchmove', e => {
+  if (!e.target.closest('.overlay, .name-input')) e.preventDefault();
+}, { passive: false });
+
+// ── Merge touch inputs into the flight physics ─────────────
+// Patch updateFlight to also read touch.*
+const _origUpdateFlight = updateFlight;
+// (No monkey-patch needed — we read touch.* directly inside updateFlight via closure)
+
+// ═══════════════════════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════════════════════
+document.getElementById('loading').style.display = 'none';
+document.getElementById('start-btn').addEventListener('click', () => {
+  document.getElementById('start-screen').classList.remove('active');
+  gameRunning = true;
+  clock.start();
+});
+document.getElementById('submit-btn').addEventListener('click', submitScore);
+document.getElementById('restart-btn').addEventListener('click', restartGame);
+
+loadLeaderboard();
+loop();
+</script>
+</body>
+</html>
