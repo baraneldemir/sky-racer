@@ -387,6 +387,7 @@ const TERRAIN_SEGS   = 144;    // segments per side  → 25 m per cell
 const SEG_SIZE       = TERRAIN_SIZE / TERRAIN_SEGS;  // 25 m — offsets snap to this
 const TERRAIN_STEP   = SEG_SIZE * 4; // recenter after moving 4 cells (100 m)
 const SEA_LEVEL      = 0;      // water surface height
+const WATER_COLOR    = 0x3a7fb5; // shared by water plane & underwater terrain
 
 const MAX_SPEED      = 130;    // m/s at full throttle
 const CRUISE_SPEED   = 80;     // m/s — wings-level neutral lift
@@ -446,9 +447,12 @@ function terrainY(wx, wz) {
 
 const _tc = new THREE.Color();
 function terrainColor(h) {
-  // Returns into the shared _tc to avoid per-vertex allocation
-  if (h < SEA_LEVEL + 1.5) return _tc.set(0xc9b88a);  // sandy shoreline
-  if (h < SEA_LEVEL + 6)   return _tc.set(0xb8c47a);  // grassy beach
+  // Returns into the shared _tc to avoid per-vertex allocation.
+  // Anything at/under the waterline gets the EXACT water colour, so the
+  // shoreline z-fight band is blue-on-blue and the flicker is invisible.
+  if (h < SEA_LEVEL + 0.6) return _tc.set(WATER_COLOR); // submerged / waterline
+  if (h < SEA_LEVEL + 2.5) return _tc.set(0xc9b88a);    // sandy shoreline
+  if (h < SEA_LEVEL + 6)   return _tc.set(0xb8c47a);    // grassy beach
   if (h < 25)  return _tc.set(0x4a8c5a);
   if (h < 55)  return _tc.set(0x5a9e68);
   if (h < 90)  return _tc.set(0x6ab070);
@@ -511,12 +515,13 @@ updateTerrainMesh(terrainMesh, 0, 0);
 const seaGeo = new THREE.PlaneGeometry(100000, 100000);
 seaGeo.rotateX(-Math.PI / 2);
 const seaMesh = new THREE.Mesh(seaGeo, new THREE.MeshLambertMaterial({
-  color: 0x3a7fb5,
+  color: WATER_COLOR,
   polygonOffset: true,
-  polygonOffsetFactor: 1,
-  polygonOffsetUnits: 1,
+  polygonOffsetFactor: 4,
+  polygonOffsetUnits: 8,
 }));
 seaMesh.position.y = SEA_LEVEL;
+seaMesh.renderOrder = -1;
 scene.add(seaMesh);
 
 // Simple runway at spawn (spawn ground is at y≈8 due to flattening)
