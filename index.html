@@ -707,6 +707,8 @@ let quat       = new THREE.Quaternion();
 let speed      = 75;
 let throttle   = 0.6;
 let vvel       = 0;       // vertical velocity (m/s, Y axis)
+let displaySpeed = 0;     // actual velocity through the world (for HUD)
+const _prevPos = new THREE.Vector3();
 let dist       = 0;
 let maxDist    = 0;
 const origin   = new THREE.Vector3(0, 0, 0);
@@ -775,6 +777,9 @@ function updateFlight(dt) {
   speed += (targetSpd - speed) * Math.min(dt * 0.9, 1);
   speed = Math.max(0, speed);
 
+  // Snapshot position so we can measure the real velocity through the world
+  _prevPos.copy(pos);
+
   // Move forward in facing direction
   _fwd.set(0, 0, -1).applyQuaternion(quat);
   pos.addScaledVector(_fwd, speed * dt);
@@ -793,6 +798,10 @@ function updateFlight(dt) {
   }
   vvel = Math.max(-120, Math.min(120, vvel));
   pos.y += vvel * dt;
+
+  // Real speed = how far the plane actually moved this frame (3D), so it
+  // reads 0 when not moving rather than just showing throttle force.
+  displaySpeed = _prevPos.distanceTo(pos) / dt;
 
   // Stall indicator
   const stalling = speed < STALL_SPEED;
@@ -849,7 +858,7 @@ const euler = new THREE.Euler(0, 0, 0, 'YXZ');
 
 const thrReadout = document.getElementById('thr-readout');
 function updateHUD() {
-  document.getElementById('hud-spd').textContent  = Math.round(speed)  + ' m/s';
+  document.getElementById('hud-spd').textContent  = Math.round(displaySpeed) + ' m/s';
   document.getElementById('hud-alt').textContent  = Math.round(pos.y)  + ' m';
   document.getElementById('hud-dist').textContent = dist >= 1000
     ? (dist / 1000).toFixed(2) + ' km'
