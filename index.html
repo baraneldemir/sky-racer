@@ -826,6 +826,8 @@ function doCrash() {
   crashed = true;
   gameRunning = false;
 
+  stopEngineSound();   // engine cuts out when you crash
+
   const km = (maxDist / 1000).toFixed(2);
   document.getElementById('crash-dist').textContent = km + ' km flown';
   document.getElementById('crash-screen').classList.add('active');
@@ -857,6 +859,7 @@ function restartGame() {
   document.getElementById('player-name').value = '';
 
   gameRunning = true;
+  startEngineSound();  // restart the engine for the new flight
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -921,86 +924,98 @@ async function submitScore() {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  ENGINE SOUND  (synthesised old-prop-plane drone, Web Audio)
+//  ENGINE SOUND  (vintage piston engine — scheduled firing pulses)
 // ═══════════════════════════════════════════════════════════
+// A real old plane engine is a string of distinct combustion "thumps" with
+// rough, irregular timing — not a smooth drone. We schedule an individual
+// enveloped pulse per cylinder firing, with jitter for that lumpy vintage feel.
 let audioCtx = null;
-let engineBaseOsc = null, engineMaster = null;
+let engineMaster = null;
+let engineNoiseBuf = null;
+let engineTimer = null;
+let engineRunning = false;
+let nextPulseTime = 0;
 
-function startEngineSound() {
-  if (audioCtx) {            // already created — just resume if suspended
-    if (audioCtx.state === 'suspended') audioCtx.resume();
-    return;
-  }
+function ensureAudio() {
+  if (audioCtx) return;
   const Ctx = window.AudioContext || window.webkitAudioContext;
   if (!Ctx) return;
   audioCtx = new Ctx();
 
-  // Master volume — kept low so it sits in the background
   engineMaster = audioCtx.createGain();
-  engineMaster.gain.value = 0.07;
+  engineMaster.gain.value = 0.0001;
   engineMaster.connect(audioCtx.destination);
 
-  // Low-pass to keep it a warm, muffled rumble (old radial engine)
-  const lp = audioCtx.createBiquadFilter();
-  lp.type = 'lowpass';
-  lp.frequency.value = 420;
-  lp.connect(engineMaster);
-
-  // Two slightly detuned sawtooths = throaty engine tone
-  engineBaseOsc = audioCtx.createOscillator();
-  engineBaseOsc.type = 'sawtooth';
-  engineBaseOsc.frequency.value = 55;
-  const osc2 = audioCtx.createOscillator();
-  osc2.type = 'sawtooth';
-  osc2.frequency.value = 55;
-  osc2.detune.value = 16;
-  engineBaseOsc.connect(lp);
-  osc2.connect(lp);
-
-  // LFO amplitude modulation = the "chug-chug" of the propeller
-  const throbGain = audioCtx.createGain();
-  throbGain.gain.value = 1;
-  lp.disconnect();
-  lp.connect(throbGain);
-  throbGain.connect(engineMaster);
-  const lfo = audioCtx.createOscillator();
-  lfo.type = 'sine';
-  lfo.frequency.value = 13;          // blade-pass throb rate
-  const lfoDepth = audioCtx.createGain();
-  lfoDepth.gain.value = 0.35;
-  lfo.connect(lfoDepth);
-  lfoDepth.connect(throbGain.gain);
-
-  // A touch of filtered noise for exhaust/air texture
-  const noiseBuf = audioCtx.createBuffer(1, audioCtx.sampleRate * 2, audioCtx.sampleRate);
-  const nd = noiseBuf.getChannelData(0);
-  for (let i = 0; i < nd.length; i++) nd[i] = (Math.random() * 2 - 1) * 0.5;
-  const noise = audioCtx.createBufferSource();
-  noise.buffer = noiseBuf;
-  noise.loop = true;
-  const noiseLP = audioCtx.createBiquadFilter();
-  noiseLP.type = 'lowpass';
-  noiseLP.frequency.value = 700;
-  const noiseGain = audioCtx.createGain();
-  noiseGain.gain.value = 0.04;
-  noise.connect(noiseLP); noiseLP.connect(noiseGain); noiseGain.connect(engineMaster);
-
-  engineBaseOsc.start();
-  osc2.start();
-  lfo.start();
-  noise.start();
-
-  // keep osc2's frequency tracking the base oscillator
-  engineBaseOsc._osc2 = osc2;
+  // reusable noise buffer for the combustion "chuff"
+  engineNoiseBuf = audioCtx.createBuffer(1, audioCtx.sampleRate, audioCtx.sampleRate);
+  const nd = engineNoiseBuf.getChannelData(0);
+  for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
 }
 
-// Pitch the engine slightly with speed so dives/climbs are audible
-function updateEngineSound() {
-  if (!audioCtx || !engineBaseOsc) return;
-  const f = 45 + displaySpeed * 0.22;   // ~45–75 Hz across the speed range
-  const t = audioCtx.currentTime;
-  engineBaseOsc.frequency.setTargetAtTime(f, t, 0.1);
-  if (engineBaseOsc._osc2) engineBaseOsc._osc2.frequency.setTargetAtTime(f, t, 0.1);
+// One cylinder firing: a low pitched-down thump + a short noise chuff
+function enginePulse(t, intensity) {
+  // Pitched thump (the piston "knock")
+  const osc = audioCtx.createOscillator();
+  osc.type = 'triangle';
+  const f0 = 95 + Math.random() * 20;
+  osc.frequency.setValueAtTime(f0, t);
+  osc.frequency.exponentialRampToValueAtTime(42, t + 0.09);
+  const og = audioCtx.createGain();
+  og.gain.setValueAtTime(0.0001, t);
+  og.gain.exponentialRampToValueAtTime(intensity, t + 0.004);
+  og.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
+  osc.connect(og); og.connect(engineMaster);
+  osc.start(t); osc.stop(t + 0.16);
+
+  // Combustion chuff (filtered noise burst)
+  const nb = audioCtx.createBufferSource();
+  nb.buffer = engineNoiseBuf;
+  const bp = audioCtx.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.frequency.value = 280 + Math.random() * 120;
+  bp.Q.value = 0.7;
+  const ng = audioCtx.createGain();
+  ng.gain.setValueAtTime(0.0001, t);
+  ng.gain.exponentialRampToValueAtTime(intensity * 0.6, t + 0.003);
+  ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
+  nb.connect(bp); bp.connect(ng); ng.connect(engineMaster);
+  const off = Math.random() * 0.5;
+  nb.start(t, off); nb.stop(t + 0.1);
+}
+
+// Look-ahead scheduler: queue pulses slightly ahead of the audio clock
+function engineScheduler() {
+  if (!engineRunning) return;
+  const ahead = 0.15;
+  while (nextPulseTime < audioCtx.currentTime + ahead) {
+    // firing rate rises a little with speed (idle ~14 Hz → ~22 Hz)
+    const rate = 14 + displaySpeed * 0.09;
+    const interval = 1 / rate;
+    const intensity = 0.75 + Math.random() * 0.45;   // uneven combustion
+    enginePulse(nextPulseTime, intensity);
+    nextPulseTime += interval * (0.82 + Math.random() * 0.36); // ±18% jitter
+  }
+}
+
+function startEngineSound() {
+  ensureAudio();
+  if (!audioCtx) return;
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  engineMaster.gain.cancelScheduledValues(audioCtx.currentTime);
+  engineMaster.gain.setTargetAtTime(0.5, audioCtx.currentTime, 0.15); // fade in
+  if (engineRunning) return;
+  engineRunning = true;
+  nextPulseTime = audioCtx.currentTime + 0.05;
+  engineTimer = setInterval(engineScheduler, 30);
+}
+
+function stopEngineSound() {
+  engineRunning = false;
+  if (engineTimer) { clearInterval(engineTimer); engineTimer = null; }
+  if (audioCtx && engineMaster) {
+    engineMaster.gain.cancelScheduledValues(audioCtx.currentTime);
+    engineMaster.gain.setTargetAtTime(0.0001, audioCtx.currentTime, 0.04); // quick cut
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1016,7 +1031,6 @@ function loop() {
     maybeUpdateTerrain();
     updateCamera(dt);
     updateHUD();
-    updateEngineSound();
   }
   renderer.render(scene, camera);
 }
