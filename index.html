@@ -764,9 +764,9 @@ function updateFlight(dt) {
     quat.premultiply(_rollQ);
   }
 
-  // Coordinated turn (bank → yaw)
+  // Coordinated turn (bank → yaw): banking left should turn the nose left
   const bankSin = _right.y; // ≈ sin(roll angle) wrt world
-  _yawQ.setFromAxisAngle(_worldUp, -bankSin * (speed / 90) * 0.55 * dt);
+  _yawQ.setFromAxisAngle(_worldUp, bankSin * (speed / 90) * 0.55 * dt);
   quat.premultiply(_yawQ);
   quat.normalize();
 
