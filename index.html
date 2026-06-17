@@ -389,7 +389,10 @@ const TERRAIN_STEP   = SEG_SIZE * 4; // recenter after moving 4 cells (100 m)
 const SEA_LEVEL      = 0;      // water surface height
 const WATER_COLOR    = 0x3a7fb5; // shared by water plane & underwater terrain
 
-const MAX_SPEED      = 130;    // m/s at full throttle
+const MAX_SPEED      = 130;    // m/s — top level-flight speed at full throttle
+const THRUST_MAX     = 9;      // m/s² engine accel at full throttle (T/W < 1,
+                               // so a sustained vertical climb is impossible)
+const DRAG_COEF      = THRUST_MAX / (MAX_SPEED * MAX_SPEED); // gives MAX_SPEED level
 const CRUISE_SPEED   = 80;     // m/s — wings-level neutral lift
 const STALL_SPEED    = 42;     // m/s — below this, lift collapses
 const PITCH_RATE     = 0.95;   // rad/s
@@ -772,16 +775,21 @@ function updateFlight(dt) {
   quat.premultiply(_yawQ);
   quat.normalize();
 
-  // Speed: approach throttle * MAX_SPEED with simple drag
-  const targetSpd = throttle * MAX_SPEED;
-  speed += (targetSpd - speed) * Math.min(dt * 0.9, 1);
+  // Airspeed: engine thrust vs aerodynamic drag vs gravity along the flight
+  // path. Climbing bleeds speed (you fight gravity); diving builds it. Because
+  // thrust < weight, a steep/vertical climb can't be sustained — the plane
+  // slows, stalls, and the nose falls.
+  _fwd.set(0, 0, -1).applyQuaternion(quat);
+  const thrust = throttle * THRUST_MAX;
+  const drag   = DRAG_COEF * speed * speed;
+  speed += (thrust - drag) * dt;
+  speed -= GRAVITY * _fwd.y * dt;   // _fwd.y = sin(climb angle)
   speed = Math.max(0, speed);
 
   // Snapshot position so we can measure the real velocity through the world
   _prevPos.copy(pos);
 
   // Move forward in facing direction
-  _fwd.set(0, 0, -1).applyQuaternion(quat);
   pos.addScaledVector(_fwd, speed * dt);
 
   // Lift / gravity (vertical dynamics)
