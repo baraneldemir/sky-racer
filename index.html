@@ -209,8 +209,8 @@
   /* Throttle buttons — bottom-left */
   #thr-pad {
     position: absolute;
-    bottom: 36px; left: 30px;
-    display: flex; flex-direction: column; gap: 10px;
+    bottom: 32px; left: 24px;
+    display: flex; flex-direction: column; gap: 14px;
     pointer-events: all;
   }
   .thr-btn {
@@ -257,33 +257,22 @@
     pointer-events: none;
   }
 
-  /* Tilt-mode toggle */
-  #tilt-btn {
-    position: absolute;
-    bottom: 36px; left: 50%;
-    transform: translateX(-50%);
-    padding: 8px 18px;
-    border-radius: 20px;
-    border: 1px solid rgba(255,255,255,.4);
-    background: rgba(0,0,0,.38);
-    color: rgba(255,255,255,.8);
-    font-family: 'Courier New', monospace;
-    font-size: 11px; letter-spacing: 2px;
-    text-transform: uppercase;
-    cursor: pointer;
-    pointer-events: all;
-    touch-action: none;
-    backdrop-filter: blur(4px);
-  }
-  #tilt-btn.active {
-    background: rgba(80,200,120,.35);
-    border-color: rgba(80,200,120,.7);
-    color: #4f8;
+  /* throttle % readout above the thrust pad */
+  #thr-readout {
+    text-align: center;
+    color: #fff;
+    font-size: 13px; font-weight: bold;
+    letter-spacing: 1px;
+    text-shadow: 0 0 4px rgba(0,0,0,.8);
+    margin-bottom: 2px;
   }
 
-  /* Hide desktop hint on touch screens */
+  /* On touch screens, hide the desktop-only gauges that overlap
+     the on-screen controls (vertical THR bar, artificial horizon, hint) */
   @media (hover: none) and (pointer: coarse) {
-    #hint { display: none; }
+    #hint,
+    .throttle-wrap,
+    #horizon-wrap { display: none; }
   }
 </style>
 </head>
@@ -366,12 +355,10 @@
 <div id="mobile-controls">
   <!-- Throttle up/down -->
   <div id="thr-pad">
+    <div id="thr-readout">THR 60%</div>
     <button class="thr-btn" id="thr-up-btn">▲</button>
     <button class="thr-btn" id="thr-dn-btn">▼</button>
   </div>
-
-  <!-- Tilt mode toggle -->
-  <button id="tilt-btn">⦿ Tilt</button>
 
   <!-- Pitch / Roll joystick -->
   <div id="joy-zone">
@@ -761,6 +748,7 @@ function updateCamera(dt) {
 // ═══════════════════════════════════════════════════════════
 const euler = new THREE.Euler(0, 0, 0, 'YXZ');
 
+const thrReadout = document.getElementById('thr-readout');
 function updateHUD() {
   document.getElementById('hud-spd').textContent  = Math.round(speed)  + ' m/s';
   document.getElementById('hud-alt').textContent  = Math.round(pos.y)  + ' m';
@@ -768,6 +756,7 @@ function updateHUD() {
     ? (dist / 1000).toFixed(2) + ' km'
     : Math.round(dist) + ' m';
   document.getElementById('thr-fill').style.height = (throttle * 100) + '%';
+  if (thrReadout) thrReadout.textContent = 'THR ' + Math.round(throttle * 100) + '%';
 
   // Artificial horizon
   euler.setFromQuaternion(quat, 'YXZ');
@@ -916,7 +905,6 @@ const touch = {
   pitchIn:   0,   // -1 … +1
   thrUp:     false,
   thrDn:     false,
-  tiltMode:  false,
 };
 
 const JOY_R = 52; // max knob travel radius (px)
@@ -976,47 +964,6 @@ function setupMobileControls() {
   }
   holdBtn('thr-up-btn', 'thrUp');
   holdBtn('thr-dn-btn', 'thrDn');
-
-  // ── Tilt / gyro mode ─────────────────────────────────────
-  const tiltBtn = document.getElementById('tilt-btn');
-  tiltBtn.addEventListener('click', async () => {
-    if (!touch.tiltMode) {
-      // iOS 13+ needs explicit permission
-      if (typeof DeviceOrientationEvent !== 'undefined' &&
-          typeof DeviceOrientationEvent.requestPermission === 'function') {
-        try {
-          const state = await DeviceOrientationEvent.requestPermission();
-          if (state !== 'granted') return;
-        } catch { return; }
-      }
-      touch.tiltMode = true;
-      tiltBtn.textContent = '⦿ Tilt ON';
-      tiltBtn.classList.add('active');
-      // Hide joystick while tilting
-      joyZone.style.opacity = '0.3';
-      joyZone.style.pointerEvents = 'none';
-    } else {
-      touch.tiltMode = false;
-      tiltBtn.textContent = '⦿ Tilt';
-      tiltBtn.classList.remove('active');
-      joyZone.style.opacity = '';
-      joyZone.style.pointerEvents = '';
-      touch.rollIn = 0; touch.pitchIn = 0;
-    }
-  });
-
-  // Device orientation → roll/pitch
-  let baseAlpha = null, baseBeta = null;
-  window.addEventListener('deviceorientation', e => {
-    if (!touch.tiltMode || !gameRunning) return;
-    // gamma = left/right tilt (-90 … +90)
-    // beta  = front/back tilt (-180 … +180), ~45 when held upright
-    if (baseBeta === null) { baseBeta = e.beta; }
-    const roll  = (e.gamma ?? 0) / 40;          // ±40° = full roll
-    const pitch = -(e.beta - baseBeta) / 35;    // tilt forward from base = pitch down
-    touch.rollIn  = Math.max(-1, Math.min(1, roll));
-    touch.pitchIn = Math.max(-1, Math.min(1, pitch));
-  });
 }
 
 setupMobileControls();
